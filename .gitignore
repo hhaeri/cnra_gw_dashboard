@@ -1,0 +1,21 @@
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+.venv/
+venv/
+env/
+
+# Secrets and API Keys (CRITICAL for AI Agents!)
+.env
+
+# Local Databases 
+*.duckdb
+*.duckdb.wal
+
+# macOS System Files
+.DS_Store
+.AppleDouble
+._*
