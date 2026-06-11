@@ -29,6 +29,7 @@ from components.well_profile import create_well_profile_figure, create_construct
 from components.accordions import create_dashboard_accordions
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.FLATLY])
+server = app.server  # <--- Add this exact line! Render will look for this 'server' variable.
 
 # ---------------------------------------------------------
 # 2. Layout Generation (Now with Dropdown & Loading Spinner)
