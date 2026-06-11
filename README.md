@@ -13,6 +13,13 @@ This repository features a decoupled microservices architecture, isolating the d
 
 ## 🏗️ Project Architecture
 
+```mermaid
+graph TD;
+    User((User)) -->|Interacts| UI[Plotly Dash UI]
+    UI -->|Requests Data| MCP[mcp_api/server.py]
+    MCP -->|Fetches Telemetry| CNRA[(CNRA SGMA Database)]
+    MCP -->|Executes SQL| CKAN[(CKAN Datastore)]
+
 This is a Monorepo containing two distinct modules:
 
 * **`/mcp_api` (The Data Engine):** A lightweight server that interfaces asynchronously with CNRA and CKAN APIs to fetch groundwater elevation, station data, and well perforations.
