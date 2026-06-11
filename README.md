@@ -19,6 +19,7 @@ graph TD;
     UI -->|Requests Data| MCP[mcp_api/server.py]
     MCP -->|Fetches Telemetry| CNRA[(CNRA SGMA Database)]
     MCP -->|Executes SQL| CKAN[(CKAN Datastore)]
+```
 
 This is a Monorepo containing two distinct modules:
 
