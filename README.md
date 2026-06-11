@@ -1,5 +1,7 @@
 # 💧 CNRA Groundwater Dashboard & MCP Server
-
+![Python](https://img.shields.io/badge/Python-3.10+-blue.svg?logo=python&logoColor=white)
+![Plotly Dash](https://img.shields.io/badge/Dash-Plotly-008de4?logo=plotly&logoColor=white)
+![Architecture](https://img.shields.io/badge/Architecture-MCP-8A2BE2)
 A lightweight Model Context Protocol (MCP) data pipeline and interactive Plotly Dash dashboard for fetching, rendering, and analyzing California Natural Resources Agency (CNRA) SGMA groundwater telemetry.
 
 This repository features a decoupled microservices architecture, isolating the data-fetching engine (MCP API) from the visual rendering front-end (Dashboard).
