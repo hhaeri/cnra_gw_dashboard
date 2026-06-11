@@ -1,9 +1,3 @@
-Here is a comprehensive, professional `README.md` perfectly tailored to the decoupled architecture we just built. It acts as both a technical manual and a guided tour of your project.
-
-You can copy everything inside the block below and paste it directly into a new file named `README.md` in the root of your `cnra_gw_dashboard` repository.
-
----
-
 ```markdown
 # 💧 CNRA Groundwater Dashboard & MCP Server
 
