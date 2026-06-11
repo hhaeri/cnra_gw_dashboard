@@ -17,8 +17,19 @@ This repository features a decoupled microservices architecture, isolating the d
 graph TD;
     User((User)) -->|Interacts| UI[Plotly Dash UI]
     UI -->|Requests Data| MCP[mcp_api/server.py]
-    MCP -->|Fetches Telemetry| CNRA[(CNRA SGMA Database)]
-    MCP -->|Executes SQL| CKAN[(CKAN Datastore)]
+    
+    subgraph CNRA CKAN Open Data Platform
+        direction LR
+        ST[Resource: stations<br/>af157380-fb42-4abf-b72a-6f9f98868077]
+        MS[Resource: measurements<br/>bfa9f262-24a1-45bd-8dc8-138bc8107266]
+        PF[Resource: perforations<br/>f1deaa6d-2cb5-4052-a73f-08a69f26b750]
+        GS[Resource: gsp_monitoring<br/>38dc5a77-0428-4d8b-970a-51797ed2cd36]
+    end
+
+    MCP -->|datastore_search| ST
+    MCP -->|datastore_search| PF
+    MCP -->|datastore_search_sql| MS
+    MCP -->|datastore_search| GS
 ```
 
 This is a Monorepo containing two distinct modules:
