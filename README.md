@@ -28,7 +28,7 @@ graph TD;
 
     MCP -->|datastore_search| ST
     MCP -->|datastore_search| PF
-    MCP -->|datastore_search_sql| MS
+    MCP -->|datastore_search| MS
     MCP -->|datastore_search| GS
 ```
 
