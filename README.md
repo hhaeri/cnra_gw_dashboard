@@ -115,11 +115,3 @@ async def test_fetch():
 asyncio.run(test_fetch())
 
 ```
-
-```
-
-***
-
-This README acts as the perfect front door to your code. It explains the architecture clearly, prevents users from running into directory-routing bugs, and highlights the specific tools available!
-
-```
