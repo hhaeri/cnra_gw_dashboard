@@ -3,7 +3,7 @@
 ![Plotly Dash](https://img.shields.io/badge/Dash-Plotly-008de4?logo=plotly&logoColor=white)
 ![Architecture](https://img.shields.io/badge/Architecture-MCP-8A2BE2)
 
-![Dashboard Demo](assets/dashboard_demo_short.gif)
+![Dashboard Demo](assets/dashboard_demo.gif)
 
 A lightweight Model Context Protocol (MCP) data pipeline and interactive Plotly Dash dashboard for fetching, rendering, and analyzing California Natural Resources Agency (CNRA) SGMA groundwater telemetry.
 
