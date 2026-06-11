@@ -1,4 +1,3 @@
-```markdown
 # 💧 CNRA Groundwater Dashboard & MCP Server
 
 A lightweight Model Context Protocol (MCP) data pipeline and interactive Plotly Dash dashboard for fetching, rendering, and analyzing California Natural Resources Agency (CNRA) SGMA groundwater telemetry.
