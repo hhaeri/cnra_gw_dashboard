@@ -215,20 +215,30 @@ async def fetch_dropdown_wells():
 def open_browser():
     webbrowser.open_new("http://127.0.0.1:8050")
 
-if __name__ == '__main__':
-    # 1. Quickly grab the list of wells for the menu
-    menu_options = asyncio.run(fetch_dropdown_wells())
+# 1. Define a wrapper function for the layout that can execute globally
+def render_production_layout():
+    # Fetch the menu options synchronously or asynchronously
+    try:
+        menu_options = asyncio.run(fetch_dropdown_wells())
+    except Exception:
+        # Fallback empty list if the database fetch fails during initial boot
+        menu_options = []
     
-    # Ensure our default well is in the list just in case it wasn't in the top 500
+    # Ensure our default well is in the list just in case
     if not any(opt['value'] == "369604N1219650W003" for opt in menu_options):
         menu_options.insert(0, {"label": "Pleasure PT. Deep (369604N1219650W003)", "value": "369604N1219650W003"})
+        
+    return serve_layout(menu_options)
 
-    # 2. Render the layout (It will load empty, and the callback will instantly trigger to fill it)
-    app.layout = serve_layout(menu_options)
-    
-    # Only open the browser in the main worker process, avoiding the double-tab bug
+# 2. Assign the FUNCTION itself to app.layout globally (notice NO parentheses here)
+app.layout = render_production_layout
+
+# 3. Keep local development utilities isolated down here
+if __name__ == '__main__':
+    # Only open the browser in the local main worker process
     if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        from threading import Timer
         Timer(1, open_browser).start()
 
-    print("Dashboard architecture fully initialized. Launching server at http://127.0.0.1:8050")
+    print("Dashboard architecture fully initialized. Launching local server at http://127.0.0.1:8050")
     app.run(debug=True, port=8050)
