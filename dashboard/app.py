@@ -24,9 +24,9 @@ from mcp_api.server import (
     RESOURCES              
 )
 
-from components.hydrograph import generate_interactive_hydrograph_logic
-from components.well_profile import create_well_profile_figure, create_construction_table
-from components.accordions import create_dashboard_accordions
+from dashboard.components.hydrograph import generate_interactive_hydrograph_logic
+from dashboard.components.well_profile import create_well_profile_figure, create_construction_table
+from dashboard.components.accordions import create_dashboard_accordions
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.FLATLY])
 server = app.server  # <--- Add this exact line! Render will look for this 'server' variable.
