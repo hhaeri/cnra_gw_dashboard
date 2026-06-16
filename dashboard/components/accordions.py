@@ -3,7 +3,7 @@ from dash import html, dash_table
 import pandas as pd
 import numpy as np
 
-def create_dashboard_accordions(site_code: str, station_records: list, gsp_records: list, measurements_records: list, perf_records: list) -> dbc.Accordion:
+def create_dashboard_accordions(site_code: str, station_records: list, gsp_records: list, measurements_records: list, perf_records: list, is_representative: bool) -> dbc.Accordion:
     """
     Generates USGS-style collapsible accordion tables for Well Summary, 
     Water Level Statistics, and Raw Water Level Data.
@@ -96,11 +96,137 @@ def create_dashboard_accordions(site_code: str, station_records: list, gsp_recor
     else:
         raw_table = html.P("No raw measurement data available.")
 
+    # # ---------------------------------------------------------
+    # # 5. Assemble and Return the Accordion
+    # # ---------------------------------------------------------
+    # return dbc.Accordion([
+    #     dbc.AccordionItem(summary_table, title="Well Summary & Construction", item_id="item-summary"),
+    #     dbc.AccordionItem(stats_table, title="Overall Water Level Statistics", item_id="item-stats"),
+    #     dbc.AccordionItem(raw_table, title="Raw Water Levels", item_id="item-raw"),
+    # ], start_collapsed=False, always_open=True, className="mt-4 shadow-sm")
+
+
     # ---------------------------------------------------------
-    # 5. Assemble and Return the Accordion
+    # 5. Assemble the Base Accordion Items
     # ---------------------------------------------------------
-    return dbc.Accordion([
+    accordion_items = [
         dbc.AccordionItem(summary_table, title="Well Summary & Construction", item_id="item-summary"),
         dbc.AccordionItem(stats_table, title="Overall Water Level Statistics", item_id="item-stats"),
         dbc.AccordionItem(raw_table, title="Raw Water Levels", item_id="item-raw"),
-    ], start_collapsed=False, always_open=True, className="mt-4 shadow-sm")
+    ]
+
+    # ---------------------------------------------------------
+    # 6. Inject SGMA Non-Representative Notice (If Applicable)
+    # ---------------------------------------------------------
+    # Utilize the dataframe we already built to get the count
+    total_measurements = len(df_msmt) if not df_msmt.empty else 0
+    prog = station_data.get('monitoring_program', 'Unknown')
+
+    if not is_representative:
+
+        non_rep_metrics_ui = dbc.AccordionItem([
+            html.P("This well is not actively utilized as a representative monitoring site under the Sustainable Groundwater Management Act (SGMA).", className="text-muted mb-3"),
+            dbc.Row([
+                dbc.Col([
+                    html.H6("Historical Telemetry Count", className="fw-bold mb-1"),
+                    html.H4(f"{total_measurements:,}", className="text-primary")
+                ], width=4),
+                dbc.Col([
+                    html.H6("Monitoring Program", className="fw-bold mb-1"),
+                    html.P(prog)
+                ], width=4)
+            ], className="bg-light p-3 rounded border")
+        ], title="Non-Representative Well Metrics", item_id="item-non-rep")
+        
+        # Insert this item at the top of the accordion list for immediate visibility
+        accordion_items.insert(0, non_rep_metrics_ui)
+
+    else:
+        # 1. Safely extract all SMC data from the gsp_records
+        # Using .get() for both upper and lowercase handles API inconsistencies
+        smc_mt = gsp_data.get('SMC_MT') or gsp_data.get('smc_mt', 'N/A')
+        smc_mo = gsp_data.get('SMC_MO') or gsp_data.get('smc_mo', 'N/A')
+        smc_im5 = gsp_data.get('SMC_IM_5_YR') or gsp_data.get('smc_im_5_yr', 'N/A')
+        smc_im10 = gsp_data.get('SMC_IM_10_YR') or gsp_data.get('smc_im_10_yr', 'N/A')
+        smc_im15 = gsp_data.get('SMC_IM_15_YR') or gsp_data.get('smc_im_15_yr', 'N/A')
+        smc_start = gsp_data.get('SMC_START_DATE') or gsp_data.get('smc_start_date', 'N/A')
+
+        # Format helper (adds 'ft' if the value exists)
+        def fmt_ft(val):
+            return f"{val} ft" if val != 'N/A' and val is not None else "N/A"
+
+        # 2. Build the UI Layout
+        rep_metrics_ui = dbc.AccordionItem([
+            html.P("✅ This well is actively utilized as a representative monitoring site under the Sustainable Groundwater Management Act (SGMA).", className="text-success fw-bold mb-3"),
+            
+            html.Div([
+                # Row 1: General Stats & Start Date
+                dbc.Row([
+                    dbc.Col([
+                        html.H6("Historical Telemetry", className="fw-bold text-muted mb-1", style={"fontSize": "0.85rem"}),
+                        html.H5(f"{total_measurements:,}", className="text-success mb-0")
+                    ], width=4),
+                    dbc.Col([
+                        html.H6("Monitoring Program", className="fw-bold text-muted mb-1", style={"fontSize": "0.85rem"}),
+                        html.P(prog, className="mb-0")
+                    ], width=4),
+                    dbc.Col([
+                        html.H6("SMC Start Date", className="fw-bold text-muted mb-1", style={"fontSize": "0.85rem"}),
+                        html.P(str(smc_start), className="mb-0")
+                    ], width=4)
+                ], className="mb-3 pb-3 border-bottom"),
+                
+                # Row 2: Primary Criteria (MT and MO)
+                dbc.Row([
+                    dbc.Col([
+                        html.H6("Minimum Threshold (MT)", className="fw-bold mb-1", style={"fontSize": "0.85rem", "color": "#dc3545"}), # Red text for MT
+                        html.H5(fmt_ft(smc_mt), className="mb-0") 
+                    ], width=6),
+                    dbc.Col([
+                        html.H6("Measurable Objective (MO)", className="fw-bold mb-1", style={"fontSize": "0.85rem", "color": "#0d6efd"}), # Blue text for MO
+                        html.H5(fmt_ft(smc_mo), className="mb-0") 
+                    ], width=6)
+                ], className="mb-3 pb-3 border-bottom"),
+
+                # Row 3: Interim Milestones
+                html.H6("Interim Milestones", className="fw-bold text-muted mb-2", style={"fontSize": "0.85rem"}),
+                dbc.Row([
+                    dbc.Col([
+                        html.Small("5-Year", className="text-muted d-block"),
+                        html.Span(fmt_ft(smc_im5), className="fw-bold")
+                    ], width=4),
+                    dbc.Col([
+                        html.Small("10-Year", className="text-muted d-block"),
+                        html.Span(fmt_ft(smc_im10), className="fw-bold")
+                    ], width=4),
+                    dbc.Col([
+                        html.Small("15-Year", className="text-muted d-block"),
+                        html.Span(fmt_ft(smc_im15), className="fw-bold")
+                    ], width=4),
+                ])
+            ], className="bg-light p-3 rounded border border-success")
+        ], title="SGMA Representative Well Metrics", item_id="item-rep")
+        
+        accordion_items.insert(0, rep_metrics_ui)
+    # else:
+    #     # THE NEW: Representative Accordion!
+    #     rep_metrics_ui = dbc.AccordionItem([
+    #         html.P("✅ This well is actively utilized as a representative monitoring site under the Sustainable Groundwater Management Act (SGMA).", className="text-success fw-bold mb-3"),
+    #         dbc.Row([
+    #             dbc.Col([
+    #                 html.H6("Historical Telemetry Count", className="fw-bold mb-1"),
+    #                 html.H4(f"{total_measurements:,}", className="text-success")
+    #             ], width=4),
+    #             dbc.Col([
+    #                 html.H6("Monitoring Program", className="fw-bold mb-1"),
+    #                 html.P(prog)
+    #             ], width=4)
+    #         ], className="bg-light p-3 rounded border border-success")
+    #     ], title="SGMA Representative Well Metrics", item_id="item-rep")
+        
+    #     accordion_items.insert(0, rep_metrics_ui)
+
+    # ---------------------------------------------------------
+    # 7. Return the Final UI Component
+    # ---------------------------------------------------------
+    return dbc.Accordion(accordion_items, start_collapsed=False, always_open=True, className="mt-4 shadow-sm")

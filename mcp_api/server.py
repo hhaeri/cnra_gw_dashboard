@@ -15,6 +15,7 @@ import json
 # from visualization import generate_interactive_hydrograph_logic
 
 
+
 # Define the dictionary as a centralized constant
 DATA_DICTIONARY = {
     "stations": {
@@ -52,6 +53,19 @@ RESOURCES = {
     "gsp_monitoring": "38dc5a77-0428-4d8b-970a-51797ed2cd36",
 }
 
+def get_cnra_client():
+    """Generates a pre-configured HTTP client disguised as a Mac Chrome browser."""
+    browser_headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    # Return a client with all our required safety bypasses built-in
+    return httpx.AsyncClient(
+        timeout=60.0, 
+        headers=browser_headers, 
+        verify=False
+    )
+
 async def fetch_ckan_paginated(resource_key: str, filters: dict, chunk_size: int = 5000) -> list:
     """
     Universal pagination helper for standard CKAN Datastore Search queries.
@@ -61,7 +75,12 @@ async def fetch_ckan_paginated(resource_key: str, filters: dict, chunk_size: int
     current_offset = 0
     filters_str = json.dumps(filters) if filters else "{}"
 
-    async with httpx.AsyncClient() as client:
+    # 1. Create a fake browser identity
+    browser_headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
+    async with get_cnra_client() as client:
         while True:
             params = {
                 "resource_id": RESOURCES[resource_key], 
@@ -119,7 +138,7 @@ async def fetch_ckan(resource_key: str, filters: dict):
         resource_key: The internal key for the target resource.
         filters: A dictionary of key-value pairs to filter the query.
     """
-    async with httpx.AsyncClient() as client:
+    async with get_cnra_client() as client:
         params = {"resource_id": RESOURCES[resource_key], "filters": json.dumps(filters) if filters else "{}"}
         response = await client.get(SEARCH_URL, params=params)
         response.raise_for_status()
@@ -127,7 +146,7 @@ async def fetch_ckan(resource_key: str, filters: dict):
 
 async def execute_sql(sql_query: str) -> list:
     """Helper to execute SQL queries against the CKAN DataStore."""
-    async with httpx.AsyncClient() as client:
+    async with get_cnra_client() as client:
         params = {"sql": sql_query}
         response = await client.get(SQL_URL, params=params)
         response.raise_for_status()
@@ -146,7 +165,7 @@ async def get_water_years() -> list:
     current_offset = 0
     chunk_size = 5000
 
-    async with httpx.AsyncClient() as client:
+    async with get_cnra_client() as client:
         while True:
             params = {"resource_id": resource_id, "limit": chunk_size, "offset": current_offset}
             response = await client.get(url, params=params)

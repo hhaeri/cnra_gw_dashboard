@@ -3,6 +3,34 @@ import webbrowser
 import pandas as pd
 import plotly.graph_objects as go
 
+# =========================================================
+# 1. DEFENSIVE FALLBACK COMPONENT
+# =========================================================
+def generate_empty_hydrograph_placeholder(site_code):
+    """Generates a valid, empty Plotly figure with a user-friendly notification."""
+    fig = go.Figure()
+    
+    # Add a styled, centered warning annotation for the user
+    fig.add_annotation(
+        text=f"⚠️ No historical measurement data found for well: {site_code}",
+        xref="paper",
+        yref="paper",
+        x=0.5,
+        y=0.5,
+        showarrow=False,
+        font=dict(size=14, color="#555555", family="sans-serif")
+    )
+    
+    # Strip layout lines and match your dashboard's background
+    fig.update_layout(
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        plot_bgcolor="#f8f9fa",
+        paper_bgcolor="#f8f9fa",
+        margin=dict(l=20, r=20, t=20, b=20)
+    )
+    return fig
+
 async def generate_interactive_hydrograph_logic(site_code: str, get_measurements_func, get_records_func, get_wy_func) -> str:
     """
     Core logic for generating an interactive Plotly hydrograph.
@@ -13,10 +41,16 @@ async def generate_interactive_hydrograph_logic(site_code: str, get_measurements
     # ---------------------------------------------------------
     records = await get_measurements_func(site_code=site_code)
     if not records:
-        return f"No measurement data found for site_code: {site_code}"
+        # return f"No measurement data found for site_code: {site_code}"
+        return generate_empty_hydrograph_placeholder(site_code)
 
     df = pd.DataFrame(records)
 
+    # Check 2: Did the API return headers but no actual rows of data?
+    if df.empty:
+        return generate_empty_hydrograph_placeholder(site_code)
+
+        
     # Fetch dynamic water year data using the dedicated WY tool
     wy_records = await get_wy_func()
     wy_mapping = {}
