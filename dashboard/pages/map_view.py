@@ -238,38 +238,53 @@ def execute_network_spatial_filter(map_bounds, counties, basins, uses, types, pr
     total_visible_sites = len(spatial_df)
     representative_count = len(spatial_df[spatial_df['MONITORING_NETWORK_TYPE'] == 'SGMA Representative'])
 
-    # 3. Compile Pandas Data into Native GeoJSON Dictionary
-    features = []
-    for _, row in spatial_df.iterrows():
-        # 1. Safely encode the name so spaces and special characters don't break the URL
-        raw_name = str(row.get('well_name', 'Unknown Well'))
-        safe_name = urllib.parse.quote(raw_name)
 
-        popup_html = f"""
-            <div style='font-family: sans-serif; min-width: 220px;'>
-                <h6 style='margin: 0px 0px 4px 0px; font-weight: bold;'>{raw_name}</h6>
-                <p style='margin: 0px; font-size: 11px; color: #555;'><b>Basin:</b> {row.get('basin_name', 'N/A')}</p>
-                <p style='margin: 0px 0px 8px 0px; font-size: 11px; color: #555;'><b>County:</b> {row.get('county_name', 'N/A')}</p>
-                
-                <a href='/well-dashboard?id={row['site_code']}&name={safe_name}' 
-                   target='_blank' rel='noopener noreferrer'
-                   style='display: block; background-color: #2c3e50; color: white; padding: 6px; 
-                          text-align: center; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: bold;'>
-                   Open Hydrograph Analytics ↗
-                </a>
-            </div>
-        """
+    # 3. Compile Pandas Data into Native GeoJSON Dictionary (MEMORY OPTIMIZED)
+    features = []
+    
+    # OPTIMIZATION A: Only build heavy HTML popups if there are a reasonable amount of points.
+    # This prevents the 512MB JSON serialization crash on Render when zoomed out.
+    render_popups = total_visible_sites < 1500
+
+    # OPTIMIZATION B: Use itertuples() instead of iterrows() for massive speed/memory gains
+    for row in spatial_df.itertuples(index=False):
+        
+        # Base properties that every dot gets (very lightweight)
+        properties = {
+            "tooltip": f"Well ID: {row.site_code}"
+        }
+
+        # Only inject the heavy HTML payload if we are zoomed in or heavily filtered
+        if render_popups:
+            # Handle potential NaNs cleanly for itertuples
+            raw_name = str(row.well_name) if pd.notna(row.well_name) else 'Unknown Well'
+            safe_name = urllib.parse.quote(raw_name)
+            basin = str(row.basin_name) if pd.notna(row.basin_name) else 'N/A'
+            county = str(row.county_name) if pd.notna(row.county_name) else 'N/A'
+
+            popup_html = f"""
+                <div style='font-family: sans-serif; min-width: 220px;'>
+                    <h6 style='margin: 0px 0px 4px 0px; font-weight: bold;'>{raw_name}</h6>
+                    <p style='margin: 0px; font-size: 11px; color: #555;'><b>Basin:</b> {basin}</p>
+                    <p style='margin: 0px 0px 8px 0px; font-size: 11px; color: #555;'><b>County:</b> {county}</p>
+                    
+                    <a href='/well-dashboard?id={row.site_code}&name={safe_name}' 
+                       target='_blank' rel='noopener noreferrer'
+                       style='display: block; background-color: #2c3e50; color: white; padding: 6px; 
+                              text-align: center; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: bold;'>
+                       Open Hydrograph Analytics ↗
+                    </a>
+                </div>
+            """
+            properties["popup"] = popup_html
         
         features.append({
             "type": "Feature",
             "geometry": {
                 "type": "Point",
-                "coordinates": [row['longitude'], row['latitude']] # Longitude strictly first
+                "coordinates": [row.longitude, row.latitude] 
             },
-            "properties": {
-                "tooltip": f"Well ID: {row['site_code']}",
-                "popup": popup_html
-            }
+            "properties": properties
         })
 
     geojson_payload = {
