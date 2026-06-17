@@ -4,6 +4,7 @@ import dash_bootstrap_components as dbc
 import dash_leaflet as dl
 import pandas as pd
 import asyncio
+import gc  # MUST IMPORT GARBAGE COLLECTOR
 from dash_extensions.javascript import Namespace
 import urllib.parse
 
@@ -35,6 +36,11 @@ def load_master_network_cache():
         df_stations = pd.DataFrame(stations_records)
         df_gsp = pd.DataFrame(gsp_records)
         
+        # INSTANT MEMORY NUKE: Delete the massive raw JSON lists and force clear RAM
+        del stations_records
+        del gsp_records
+        gc.collect()
+
         if df_stations.empty:
             raise ValueError("The database returned an empty station dataset.")
             
@@ -90,6 +96,9 @@ def load_master_network_cache():
             'MONITORING_NETWORK_TYPE'
         ] = 'Non-Representative'
         
+        # COMPRESS DATAFRAME TEXT: Converts heavy string objects to lightweight categories
+        for col in df.select_dtypes(include=['object']).columns:
+            df[col] = df[col].astype('category')
         return df
 
     except Exception as e:
