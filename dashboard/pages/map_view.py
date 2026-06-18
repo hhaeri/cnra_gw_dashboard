@@ -203,7 +203,87 @@ layout = dbc.Container([
     Input("map-filter-program", "value"),
     Input("map-filter-sgma", "value")
 )
+
 def execute_network_spatial_filter(map_bounds, counties, basins, uses, types, programs, sgma_types):
+    working_df = df_master_cache.copy()
+    
+    # 1. Apply Categorical Filters
+    if counties:
+        working_df = working_df[working_df['county_name'].isin(counties)]
+    if basins:
+        working_df = working_df[working_df['basin_name'].isin(basins)]
+    if uses:
+        working_df = working_df[working_df['well_use'].isin(uses)]
+    if types:
+        working_df = working_df[working_df['well_type'].isin(types)]
+    if programs:
+        working_df = working_df[working_df['monitoring_program'].isin(programs)]
+    if sgma_types:
+        working_df = working_df[working_df['MONITORING_NETWORK_TYPE'].isin(sgma_types)]
+    else:
+        working_df = working_df.iloc[0:0]
+
+    total_filtered_attributes = len(working_df)
+
+    # 2. Apply Spatial Bounding Box Filter
+    if map_bounds:
+        south, west = map_bounds[0][0], map_bounds[0][1]
+        north, east = map_bounds[1][0], map_bounds[1][1]
+        spatial_df = working_df[
+            (working_df['latitude'] >= south) & (working_df['latitude'] <= north) &
+            (working_df['longitude'] >= west) & (working_df['longitude'] <= east)
+        ]
+    else:
+        spatial_df = working_df
+
+    total_visible_sites = len(spatial_df)
+    representative_count = len(spatial_df[spatial_df['MONITORING_NETWORK_TYPE'] == 'SGMA Representative'])
+
+
+    # 3. Compile Pandas Data into Native GeoJSON Dictionary (MEMORY OPTIMIZED)
+    features = []
+    
+    for row in spatial_df.itertuples(index=False):
+        # We just pass the raw data, NO HTML strings!
+        features.append({
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [row.longitude, row.latitude] 
+            },
+            "properties": {
+                "tooltip": f"Well ID: {row.site_code}",
+                "site_code": row.site_code,
+                "well_name": str(row.well_name) if pd.notna(row.well_name) else 'Unknown Well',
+                "basin_name": str(row.basin_name) if pd.notna(row.basin_name) else 'N/A',
+                "county_name": str(row.county_name) if pd.notna(row.county_name) else 'N/A'
+            }
+        })
+
+    geojson_payload = {
+        "type": "FeatureCollection",
+        "features": features
+    }
+
+    # 4. Format USGS-Style Metrics Display
+    summary_metrics_ui = html.Div([
+        html.Div([
+            html.Span("SITES IN VIEW: ", className="fw-bold text-muted"), 
+            html.Strong(f"{total_visible_sites:,}", className="text-primary fs-5")
+        ], className="mb-1"),
+        html.Div([
+            html.Span("SGMA REP TYPE: ", className="fw-bold text-muted"), 
+            html.Strong(f"{representative_count:,}", className="text-success fs-5")
+        ], className="mb-2"),
+        html.Hr(className="my-2 border-secondary"),
+        html.Div([
+            html.Span("GLOBAL MATCH: "), html.Span(f"{total_filtered_attributes:,} total records")
+        ], className="small text-muted")
+    ])
+
+    return geojson_payload, summary_metrics_ui
+    
+def execute_network_spatial_filter_(map_bounds, counties, basins, uses, types, programs, sgma_types):
     working_df = df_master_cache.copy()
     
     # 1. Apply Categorical Filters
