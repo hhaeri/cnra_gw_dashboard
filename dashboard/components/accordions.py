@@ -136,10 +136,10 @@ def create_dashboard_accordions(site_code: str, station_records: list, gsp_recor
                     html.P(prog)
                 ], width=4)
             ], className="bg-light p-3 rounded border")
-        ], title="Non-Representative Well Metrics", item_id="item-non-rep")
+        ], title="SGMA Representative Well Metrics", item_id="item-non-rep")
         
         # Insert this item at the top of the accordion list for immediate visibility
-        accordion_items.insert(0, non_rep_metrics_ui)
+        accordion_items.insert(1, non_rep_metrics_ui)
 
     else:
         # 1. Safely extract all SMC data from the gsp_records
@@ -207,7 +207,7 @@ def create_dashboard_accordions(site_code: str, station_records: list, gsp_recor
             ], className="bg-light p-3 rounded border border-success")
         ], title="SGMA Representative Well Metrics", item_id="item-rep")
         
-        accordion_items.insert(0, rep_metrics_ui)
+        accordion_items.insert(1, rep_metrics_ui)
     # else:
     #     # THE NEW: Representative Accordion!
     #     rep_metrics_ui = dbc.AccordionItem([

@@ -193,12 +193,28 @@ async def generate_interactive_hydrograph_logic(site_code: str, get_measurements
 
     # Add Thresholds
     if mt is not None:
-        fig.add_hline(y=mt, line_dash="dash", line_color="red", line_width=2.5)
-        fig.add_annotation(x=1.02, y=mt, xref="paper", yref="y", text=f"<b>Min Threshold ({mt} ft)</b>", showarrow=False, xanchor="left", font=dict(color="red", size=12))
+        fig.add_hline(
+            y=mt, 
+            line_dash="dash", 
+            line_color="red", 
+            line_width=2.5,
+            annotation_text=f"<b>Min Threshold ({mt} ft)</b>", 
+            annotation_position="top right",
+            annotation_font=dict(color="red", size=12)
+        )        
+        #fig.add_annotation(x=1.02, y=mt, xref="paper", yref="y", text=f"<b>Min Threshold ({mt} ft)</b>", showarrow=False, xanchor="left", font=dict(color="red", size=12))
         
     if mo is not None:
-        fig.add_hline(y=mo, line_dash="dashdot", line_color="green", line_width=2.5)
-        fig.add_annotation(x=1.02, y=mo, xref="paper", yref="y", text=f"<b>Measurable Obj ({mo} ft)</b>", showarrow=False, xanchor="left", font=dict(color="green", size=12))
+        fig.add_hline(
+            y=mo, 
+            line_dash="dashdot", 
+            line_color="green", 
+            line_width=2.5,
+            annotation_text=f"<b>Measurable Obj ({mo} ft)</b>", 
+            annotation_position="top right", # You can also use "bottom right" if they overlap!
+            annotation_font=dict(color="green", size=12)
+        )
+        #fig.add_annotation(x=1.02, y=mo, xref="paper", yref="y", text=f"<b>Measurable Obj ({mo} ft)</b>", showarrow=False, xanchor="left", font=dict(color="green", size=12))
 
     # Format Layout
     fig.update_layout(
