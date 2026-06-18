@@ -244,6 +244,10 @@ def execute_network_spatial_filter(map_bounds, counties, basins, uses, types, pr
     features = []
     
     for row in spatial_df.itertuples(index=False):
+        # Safely handle potential empty text fields
+        well_name_str = str(row.well_name) if pd.notna(row.well_name) else 'Unknown Well'
+        sgma_str = str(row.MONITORING_NETWORK_TYPE) if pd.notna(row.MONITORING_NETWORK_TYPE) else 'Non-Representative'
+        
         # We just pass the raw data, NO HTML strings!
         features.append({
             "type": "Feature",
@@ -252,11 +256,12 @@ def execute_network_spatial_filter(map_bounds, counties, basins, uses, types, pr
                 "coordinates": [row.longitude, row.latitude] 
             },
             "properties": {
-                "tooltip": f"Well ID: {row.site_code}",
+                "tooltip": f"{row.site_code}| {well_name_str}",
                 "site_code": row.site_code,
-                "well_name": str(row.well_name) if pd.notna(row.well_name) else 'Unknown Well',
+                "well_name": well_name_str,
                 "basin_name": str(row.basin_name) if pd.notna(row.basin_name) else 'N/A',
-                "county_name": str(row.county_name) if pd.notna(row.county_name) else 'N/A'
+                "county_name": str(row.county_name) if pd.notna(row.county_name) else 'N/A',
+                "sgma_status": sgma_str
             }
         })
 
