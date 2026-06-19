@@ -72,13 +72,26 @@ def load_master_network_cache():
         # --- BULLETPROOF PANDAS JOIN ---
         if not df_gsp.empty:
             df_gsp.columns = [str(c).upper() for c in df_gsp.columns]
+
             if 'SITE_CODE' in df_gsp.columns:
                 df_gsp = df_gsp.rename(columns={'SITE_CODE': 'site_code'})
             
+            # 1. Ask Pandas to keep the SMC threshold columns 
+            gsp_cols_to_keep = [
+                'site_code', 'MONITORING_NETWORK_TYPE', 
+                'SMC_MO', 'SMC_MT', 'SMC_IM_5_YR', 
+                'SMC_IM_10_YR', 'SMC_IM_15_YR'
+            ]
+
+            # 2. Filter GSP columns to only the essential ones for the dashboard
+            # This prevents memory bloat from unnecessary fields
+            valid_gsp_cols = [c for c in gsp_cols_to_keep if c in df_gsp.columns]
+            df_gsp = df_gsp[valid_gsp_cols]
+
             if 'MONITORING_NETWORK_TYPE' in df_gsp.columns:
                 df = pd.merge(
                     df_stations, 
-                    df_gsp[['site_code', 'MONITORING_NETWORK_TYPE']], 
+                    df_gsp, 
                     on='site_code', 
                     how='left'
                 )
@@ -95,6 +108,26 @@ def load_master_network_cache():
             df['MONITORING_NETWORK_TYPE'] != 'SGMA Representative', 
             'MONITORING_NETWORK_TYPE'
         ] = 'Non-Representative'
+
+        # ====================================================
+        # --- MULTI-NODE WELL CONSTRUCTION LOGIC ---
+        # ====================================================
+        # 1. Extract the 15-character coordinate base (e.g., '369356N1218642W')
+        df['base_location_id'] = df['site_code'].astype(str).str[:15]
+        
+        # 2. Add the node count DIRECTLY to the dataframe so it gets downloaded
+        df['node_count'] = df.groupby('base_location_id')['site_code'].transform('count')
+        
+        # Optional: Compress it to a tiny 8-bit integer to keep RAM usage incredibly low
+        df['node_count'] = df['node_count'].fillna(1).astype('int8')
+        
+        # 3. Label them based on the count
+        df['computed_well_structure'] = 'Single-Node Well'
+        df.loc[df['node_count'] > 1, 'computed_well_structure'] = 'Multi-Node Well'
+        
+        # 4. Clean up the temporary column to save memory
+        df = df.drop(columns=['base_location_id'])
+        # ====================================================
         
         # COMPRESS DATAFRAME TEXT: Converts heavy string objects to lightweight categories
         for col in df.select_dtypes(include=['object']).columns:
