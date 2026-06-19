@@ -1,5 +1,5 @@
 import dash
-from dash import dcc, html, Input, Output, callback
+from dash import dcc, html, Input, Output, callback, State
 import dash_bootstrap_components as dbc
 import dash_leaflet as dl
 import pandas as pd
@@ -161,7 +161,16 @@ layout = dbc.Container([
             ),
             
             # Metrics Output Box
-            html.Div(id="usgs-dynamic-summary-box", className="bg-light border p-3 rounded mt-auto")
+            html.Div(id="usgs-dynamic-summary-box", className="bg-light border p-3 rounded mt-auto"),
+
+            # --- DOWNLOAD BUTTON (Global Filtered Data) ---
+            dbc.Button("⬇ Download Filtered Stations (CSV)", id="btn-download-map", color="success", className="mt-3 w-100 fw-bold"),
+            dcc.Download(id="download-map-csv"),
+            
+            # --- AOI DEEP DATA DOWNLOAD UI ---
+            dbc.Button("💧 Download Measurements for a custom Area of Interest (AOI) (CSV)", id="btn-download-aoi", color="info", className="mt-2 w-100 fw-bold"),
+            html.Div(id="aoi-download-alert", className="mt-2"), # Shows warnings if area is too big
+            dcc.Download(id="download-aoi-csv")
             
         ], md=3, className="d-flex flex-column border-end shadow-sm", style={"height": "100vh", "overflowY": "auto"}),
         
@@ -394,3 +403,145 @@ def execute_network_spatial_filter_(map_bounds, counties, basins, uses, types, p
     ])
 
     return geojson_payload, summary_metrics_ui
+
+
+# ==========================================
+# 3. INTERACTIVITY CALLBACKS
+# ==========================================
+@callback(
+    Output("download-map-csv", "data"),
+    Input("btn-download-map", "n_clicks"),
+    # Pull the exact same filter values currently active on the page
+    Input("map-filter-county", "value"),
+    Input("map-filter-basin", "value"),
+    Input("map-filter-use", "value"),
+    Input("map-filter-type", "value"),
+    Input("map-filter-program", "value"),
+    Input("map-filter-sgma", "value"),
+    prevent_initial_call=True
+)
+def download_filtered_stations(n_clicks, counties, basins, uses, types, programs, sgma_types):
+    """
+    Exports the currently filtered directory of groundwater monitoring stations to CSV.
+    
+    This callback intercepts the active state of the UI filters, applies them 
+    against the globally cached master station dataframe, and dynamically 
+    generates a downloadable CSV file. It strictly exports metadata and 
+    spatial coordinates (the "directory"), intentionally excluding heavy 
+    time-series data to ensure low latency and memory efficiency.
+    """
+    
+    # Clone the master cache to prevent mutating the global application state
+    working_df = df_master_cache.copy()
+    
+    # Apply spatial and categorical filters to find out what is on the screen
+    if counties: working_df = working_df[working_df['county_name'].isin(counties)]
+    if basins: working_df = working_df[working_df['basin_name'].isin(basins)]
+    if uses: working_df = working_df[working_df['well_use'].isin(uses)]
+    if types: working_df = working_df[working_df['well_type'].isin(types)]
+    if programs: working_df = working_df[working_df['monitoring_program'].isin(programs)]
+    if sgma_types: working_df = working_df[working_df['MONITORING_NETWORK_TYPE'].isin(sgma_types)]
+    
+    # Send the filtered dataframe directly to the user's browser as a CSV!
+    return dcc.send_data_frame(working_df.to_csv, "filtered_california_stations.csv", index=False)    
+
+# ==========================================
+# 3. INTERACTIVITY CALLBACKS
+# ==========================================
+
+@callback(
+    Output("download-aoi-csv", "data"),
+    Output("aoi-download-alert", "children"),
+    Input("btn-download-aoi", "n_clicks"),
+    State("leaflet-gis-map", "bounds"),
+    State("map-filter-county", "value"),
+    State("map-filter-basin", "value"),
+    State("map-filter-use", "value"),
+    State("map-filter-type", "value"),
+    State("map-filter-program", "value"),
+    State("map-filter-sgma", "value"),
+    prevent_initial_call=True
+)
+def export_aoi_measurements(n_clicks, map_bounds, counties, basins, uses, types, programs, sgma_types):
+    """
+    Extracts deep time-series measurement data for a targeted Area of Interest (AOI).
+    
+    Evaluates the spatial bounding box of the active map view alongside active 
+    categorical filters to isolate a specific subset of wells. To prevent 
+    out-of-memory (OOM) failures during dynamic data extraction, this function 
+    enforces a strict safety limit (MAX_WELL_LIMIT). Valid requests compile 
+    the targeted site codes into an optimized SQL 'IN' clause for the API.
+    """
+    
+    # 1. Clone the master cache to prevent mutating the global application state
+    working_df = df_master_cache.copy()
+    
+    # 2. Apply spatial and categorical filters to find out what is on the screen
+    if counties: working_df = working_df[working_df['county_name'].isin(counties)]
+    if basins: working_df = working_df[working_df['basin_name'].isin(basins)]
+    if uses: working_df = working_df[working_df['well_use'].isin(uses)]
+    if types: working_df = working_df[working_df['well_type'].isin(types)]
+    if programs: working_df = working_df[working_df['monitoring_program'].isin(programs)]
+    if sgma_types: working_df = working_df[working_df['MONITORING_NETWORK_TYPE'].isin(sgma_types)]
+    
+    # Apply spatial bounding box filter
+    if map_bounds:
+        south, west = map_bounds[0][0], map_bounds[0][1]
+        north, east = map_bounds[1][0], map_bounds[1][1]
+        spatial_df = working_df[
+            (working_df['latitude'] >= south) & (working_df['latitude'] <= north) &
+            (working_df['longitude'] >= west) & (working_df['longitude'] <= east)
+        ]
+    else:
+        spatial_df = working_df
+
+    # 3. THE KILL SWITCH: Hardware protection constraint
+    # Prevents users from querying massive datasets that would exceed the server's RAM limit.
+    MAX_WELL_LIMIT = 50 # You can adjust this to 75 or 100 after testing RAM usage
+    total_wells = len(spatial_df)
+    
+    # Return early if no wells are in the view
+    if total_wells == 0:
+        return dash.no_update, dbc.Alert("No wells in current view.", color="warning", duration=4000)
+        
+    if total_wells > MAX_WELL_LIMIT:
+        warning_msg = f"Area too large! You selected {total_wells} wells. Please zoom in or filter to {MAX_WELL_LIMIT} or fewer wells to extract deep time-series data."
+        return dash.no_update, dbc.Alert(warning_msg, color="danger", duration=6000)
+
+    # 4. Extract the isolated Site Codes
+    target_site_codes = spatial_df['site_code'].tolist()
+    
+    # 5. Format a raw SQL 'IN' clause for the CKAN API
+    # Creates a string like: ('code1', 'code2', 'code3')
+    formatted_codes = ", ".join([f"'{code}'" for code in target_site_codes])
+    
+    # Assuming 'measurements' is in your RESOURCES dictionary
+    sql_query = f'SELECT * FROM "{RESOURCES["measurements"]}" WHERE "site_code" IN ({formatted_codes})'
+    
+    # 5. Fetch the deep data!
+    try:
+        # We wrap it in a synchronous event loop call because execute_sql_paginated is async
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        raw_records = loop.run_until_complete(execute_sql_paginated(sql_query))
+        
+        if not raw_records:
+             return dash.no_update, dbc.Alert("No measurement data found for these specific wells.", color="warning", duration=4000)
+             
+        df_export = pd.DataFrame(raw_records)
+        
+        # Free up memory instantly
+        del raw_records
+        import gc
+        gc.collect()
+
+        return dcc.send_data_frame(df_export.to_csv, "AOI_Groundwater_Measurements.csv", index=False), dash.no_update
+
+    except Exception as e:
+        print(f"AOI Export Error: {e}")
+        return dash.no_update, dbc.Alert("Database timeout or error. Try selecting a smaller area.", color="danger", duration=4000)
+
+
+
+    

@@ -3,12 +3,48 @@
 ![Plotly Dash](https://img.shields.io/badge/Dash-Plotly-008de4?logo=plotly&logoColor=white)
 ![Architecture](https://img.shields.io/badge/Architecture-MCP-8A2BE2)
 
-![Dashboard Demo](assets/dashboard_demo.gif)
 
 A lightweight Model Context Protocol (MCP) data pipeline and interactive Plotly Dash dashboard for fetching, rendering, and analyzing California Natural Resources Agency (CNRA) SGMA groundwater telemetry.
 
-This repository features a decoupled microservices architecture, isolating the data-fetching engine (MCP API) from the visual rendering front-end (Dashboard).
+## 📖 About This Project
 
+Managing water resources effectively requires seamless access to historical and real-time telemetry. This project was developed to bridge the gap between raw, distributed state databases and actionable visual insights. 
+
+Built to assist in monitoring compliance and trends under California's Sustainable Groundwater Management Act (SGMA), this application provides an interactive, accessible window into the state's groundwater networks.
+
+**Key Capabilities:**
+* **Real-Time API Ingestion:** Bypasses static CSV downloads by querying the CNRA CKAN datastore dynamically, handling pagination and custom SQL execution under the hood.
+* **Interactive Hydrographs:** Allows users to visualize decades of groundwater elevation measurements instantly.
+* **Well Construction Profiling:** Cross-references telemetry with physical well perforation data to provide full-picture geological context.
+
+Whether you are a water resource manager, a data researcher, or an agency stakeholder, this tool is designed to make complex hydro-data highly accessible without requiring a technical background.
+
+## 🚀 Live Demo
+
+![Dashboard Demo](assets/dashboard_demo.gif)
+
+**Try the interactive dashboard here:** [https://cnra-gw-dashboard.onrender.com/](https://cnra-gw-dashboard.onrender.com/)
+
+*(Note: This application is hosted on Render's free tier. If it hasn't been accessed in the last 15 minutes, the server goes to sleep. It may take 30–50 seconds to "wake up" when you first click the link!)*
+
+---
+
+## 💻 Tech Stack
+This project leverages a decoupled architecture, separating the API data engine from the frontend interface:
+
+**Frontend / User Interface**
+* **Plotly Dash:** For building the interactive, analytical web application.
+* **Dash Bootstrap Components:** For responsive, clean CSS grid layouts.
+
+**Backend / Data Engine**
+* **Python & Asyncio:** For handling concurrent data fetching without blocking the main server thread.
+* **Model Context Protocol (MCP):** A lightweight server architecture managing precise data contracts with external APIs.
+* **CNRA CKAN API:** The direct state database providing the SGMA groundwater elevation telemetry and well perforations.
+
+**Production & Deployment**
+* **Gunicorn / Flask:** The heavy-duty WSGI HTTP server executing the dynamic Dash layout.
+* **Render:** Cloud platform providing continuous deployment directly from the main branch.
+  
 ---
 
 ## 🏗️ Project Architecture
@@ -139,3 +175,11 @@ async def test_fetch():
 asyncio.run(test_fetch())
 
 ```
+## 🤝 Contributing & Contact
+Contributions, issues, and feature requests are welcome! If you have questions about the data pipelines, the MCP architecture, or California groundwater telemetry, feel free to reach out.
+
+* **Author:** Hanieh Haeri
+* **LinkedIn:** https://www.linkedin.com/in/hanieh-haeri-9319b024/
+* **GitHub:** [@hhaeri](https://github.com/hhaeri)
+
+**Project developed for groundwater resource monitoring compliance under California's Sustainable Groundwater Management Act (SGMA).**
