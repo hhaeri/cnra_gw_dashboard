@@ -497,7 +497,7 @@ def export_aoi_measurements(n_clicks, map_bounds, counties, basins, uses, types,
 
     # 3. THE KILL SWITCH: Hardware protection constraint
     # Prevents users from querying massive datasets that would exceed the server's RAM limit.
-    MAX_WELL_LIMIT = 50 # You can adjust this to 75 or 100 after testing RAM usage
+    MAX_WELL_LIMIT = 150 # You can adjust this to 75 or 100 after testing RAM usage
     total_wells = len(spatial_df)
     
     # Return early if no wells are in the view
@@ -531,6 +531,12 @@ def export_aoi_measurements(n_clicks, map_bounds, counties, basins, uses, types,
              
         df_export = pd.DataFrame(raw_records)
         
+        # Automatically detect and drop backend system columns if they exist
+        junk_columns = ['_full_text', 'full_text', '_id']
+        existing_junk = [col for col in junk_columns if col in df_export.columns]
+        if existing_junk:
+            df_export = df_export.drop(columns=existing_junk)
+
         # Free up memory instantly
         del raw_records
         import gc
