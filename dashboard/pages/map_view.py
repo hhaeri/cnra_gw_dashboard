@@ -7,6 +7,8 @@ import asyncio
 import gc  # MUST IMPORT GARBAGE COLLECTOR
 from dash_extensions.javascript import Namespace
 import urllib.parse
+import tempfile
+import os
 
 # Import your server tools
 from mcp_api.server import execute_sql_paginated, RESOURCES
@@ -509,6 +511,12 @@ def export_aoi_measurements(n_clicks, map_bounds, counties, basins, uses, types,
     enforces a strict safety limit (MAX_WELL_LIMIT). Valid requests compile 
     the targeted site codes into an optimized SQL 'IN' clause for the API.
     """
+    # SAFETY CATCH: If the button hasn't been clicked, do absolutely nothing
+    if not n_clicks:
+        return dash.no_update, dash.no_update
+        # We can't actually 'stream' an alert to the screen halfway through a callback, 
+        # but having the dcc.Loading spinner combined with the exact language on your button 
+    # sets the right expectation.
     
     # 1. Clone the master cache to prevent mutating the global application state
     working_df = df_master_cache.copy()
@@ -548,41 +556,70 @@ def export_aoi_measurements(n_clicks, map_bounds, counties, basins, uses, types,
     # 4. Extract the isolated Site Codes
     target_site_codes = spatial_df['site_code'].tolist()
     
-    # 5. Format a raw SQL 'IN' clause for the CKAN API
-    # Creates a string like: ('code1', 'code2', 'code3')
-    formatted_codes = ", ".join([f"'{code}'" for code in target_site_codes])
+    # Drop the chunk size to 15. This makes more API calls, but keeps RAM perfectly flat.
+    CHUNK_SIZE = 15 
     
-    # Assuming 'measurements' is in your RESOURCES dictionary
-    sql_query = f'SELECT * FROM "{RESOURCES["measurements"]}" WHERE "site_code" IN ({formatted_codes})'
-    
-    # 5. Fetch the deep data!
+    # Create a temporary file on the Render server's hard drive
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.csv')
+    temp_filepath = temp_file.name
+    temp_file.close()
+
+    first_chunk = True # We use this to decide when to write the CSV headers
+
     try:
-        # We wrap it in a synchronous event loop call because execute_sql_paginated is async
-        import asyncio
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        raw_records = loop.run_until_complete(execute_sql_paginated(sql_query))
         
-        if not raw_records:
+        # Loop through the target codes in small batches
+        for i in range(0, len(target_site_codes), CHUNK_SIZE):
+            chunk = target_site_codes[i:i + CHUNK_SIZE]
+            
+            formatted_codes = ", ".join([f"'{code}'" for code in chunk])
+            sql_query = f'SELECT * FROM "{RESOURCES["measurements"]}" WHERE "site_code" IN ({formatted_codes})'
+            
+            # Fetch just this small chunk
+            chunk_records = loop.run_until_complete(execute_sql_paginated(sql_query))
+            
+            if chunk_records:
+                # Convert only this tiny chunk to a dataframe
+                df_chunk = pd.DataFrame(chunk_records)
+                
+                # Clean up State API junk columns
+                junk_columns = ['_full_text', 'full_text', '_id']
+                existing_junk = [col for col in junk_columns if col in df_chunk.columns]
+                if existing_junk:
+                    df_chunk = df_chunk.drop(columns=existing_junk)
+                
+                # WRITE DIRECTLY TO THE HARD DRIVE (mode='a' means append)
+                df_chunk.to_csv(temp_filepath, mode='a', header=first_chunk, index=False)
+                first_chunk = False # Never write headers again for this file
+                
+            # AGGRESSIVELY DELETE VARIABLES TO FREE RAM INSTANTLY
+            del chunk_records
+            if 'df_chunk' in locals():
+                del df_chunk
+            gc.collect()
+
+        # If the file is still empty, no data was found
+        if first_chunk:
+             os.remove(temp_filepath) # Clean up the hard drive
              return dash.no_update, dbc.Alert("No measurement data found for these specific wells.", color="warning", duration=4000)
              
-        df_export = pd.DataFrame(raw_records)
-        
-        # Automatically detect and drop backend system columns if they exist
-        junk_columns = ['_full_text', 'full_text', '_id']
-        existing_junk = [col for col in junk_columns if col in df_export.columns]
-        if existing_junk:
-            df_export = df_export.drop(columns=existing_junk)
+        # Create a memory-safe generator to stream the file to the user's browser, then delete the temp file
+        def stream_and_delete():
+            with open(temp_filepath, "rb") as f:
+                yield from f
+            os.remove(temp_filepath)
 
-        # Free up memory instantly
-        del raw_records
-        import gc
-        gc.collect()
-
-        return dcc.send_data_frame(df_export.to_csv, "AOI_Groundwater_Measurements.csv", index=False), dash.no_update
+        # Send the file to the user!
+        success_msg = f"Successfully downloaded deep data for the selected area."
+        return dcc.send_bytes(stream_and_delete, "AOI_Groundwater_Measurements.csv"), dbc.Alert(success_msg, color="success", duration=5000)
 
     except Exception as e:
         print(f"AOI Export Error: {e}")
+        # Clean up the temp file if the API crashes
+        if os.path.exists(temp_filepath):
+            os.remove(temp_filepath)
         return dash.no_update, dbc.Alert("Database timeout or error. Try selecting a smaller area.", color="danger", duration=4000)
 
 
