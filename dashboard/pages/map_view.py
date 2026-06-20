@@ -1,5 +1,5 @@
 import dash
-from dash import dcc, html, Input, Output, callback, State
+from dash import dcc, html, Input, Output, callback, State, no_update
 import dash_bootstrap_components as dbc
 import dash_leaflet as dl
 import pandas as pd
@@ -445,12 +445,12 @@ def execute_network_spatial_filter_(map_bounds, counties, basins, uses, types, p
     Output("download-map-csv", "data"),
     Input("btn-download-map", "n_clicks"),
     # Pull the exact same filter values currently active on the page
-    Input("map-filter-county", "value"),
-    Input("map-filter-basin", "value"),
-    Input("map-filter-use", "value"),
-    Input("map-filter-type", "value"),
-    Input("map-filter-program", "value"),
-    Input("map-filter-sgma", "value"),
+    State("map-filter-county", "value"),
+    State("map-filter-basin", "value"),
+    State("map-filter-use", "value"),
+    State("map-filter-type", "value"),
+    State("map-filter-program", "value"),
+    State("map-filter-sgma", "value"),
     prevent_initial_call=True
 )
 def download_filtered_stations(n_clicks, counties, basins, uses, types, programs, sgma_types):
@@ -464,6 +464,10 @@ def download_filtered_stations(n_clicks, counties, basins, uses, types, programs
     time-series data to ensure low latency and memory efficiency.
     """
     
+    # SAFETY CATCH: If the button hasn't been clicked, do absolutely nothing
+    if not n_clicks:
+        return no_update
+        
     # Clone the master cache to prevent mutating the global application state
     working_df = df_master_cache.copy()
     
@@ -530,7 +534,7 @@ def export_aoi_measurements(n_clicks, map_bounds, counties, basins, uses, types,
 
     # 3. THE KILL SWITCH: Hardware protection constraint
     # Prevents users from querying massive datasets that would exceed the server's RAM limit.
-    MAX_WELL_LIMIT = 150 # You can adjust this to 75 or 100 after testing RAM usage
+    MAX_WELL_LIMIT = 250 # You can adjust this to 75 or 100 after testing RAM usage
     total_wells = len(spatial_df)
     
     # Return early if no wells are in the view
