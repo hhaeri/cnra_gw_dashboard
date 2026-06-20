@@ -9,6 +9,7 @@ from dash_extensions.javascript import Namespace
 import urllib.parse
 import tempfile
 import os
+import shutil
 
 # Import your server tools
 from mcp_api.server import execute_sql_paginated, RESOURCES
@@ -606,9 +607,13 @@ def export_aoi_measurements(n_clicks, map_bounds, counties, basins, uses, types,
              return dash.no_update, dbc.Alert("No measurement data found for these specific wells.", color="warning", duration=4000)
              
         # Create a memory-safe generator to stream the file to the user's browser, then delete the temp file
-        def stream_and_delete():
+        def stream_and_delete(buffer):
             with open(temp_filepath, "rb") as f:
-                yield from f
+                # yield from f
+                # Safely stream it chunk-by-chunk into Dash's browser buffer
+                shutil.copyfileobj(f, buffer)
+            
+            # Clean up: Delete the temporary file from the server
             os.remove(temp_filepath)
 
         # Send the file to the user!
