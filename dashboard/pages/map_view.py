@@ -1,11 +1,11 @@
 import dash
-from dash import dcc, html, Input, Output, callback, State, no_update
+from dash import dcc, html, Input, Output, callback, State, no_update, clientside_callback
 import dash_bootstrap_components as dbc
+from dash_extensions.javascript import Namespace
 import dash_leaflet as dl
 import pandas as pd
 import asyncio
 import gc  # MUST IMPORT GARBAGE COLLECTOR
-from dash_extensions.javascript import Namespace
 import urllib.parse
 import tempfile
 import os
@@ -205,9 +205,31 @@ layout = dbc.Container([
             
             # --- AOI DEEP DATA DOWNLOAD UI ---
             dbc.Button("💧 Download Measurements for a custom Area of Interest (AOI) (CSV)", id="btn-download-aoi", color="info", className="mt-2 w-100 fw-bold"),
-            html.Div(id="aoi-download-alert", className="mt-2"), # Shows warnings if area is too big
-            dcc.Download(id="download-aoi-csv")
-            
+            # html.Div(id="aoi-download-alert", className="mt-2"), # Shows warnings if area is too big
+            # This alert is now invisible; we use it strictly as a hidden signal to tell Javascript that Python finished
+            html.Div(id="aoi-download-alert", style={"display": "none"}),
+            dcc.Download(id="download-aoi-csv"),
+            # THE DOWNLOAD UX MODAL
+            dbc.Modal(
+                [
+                    dbc.ModalHeader(dbc.ModalTitle("Extracting Deep Time-Series Data"), close_button=False),
+                    dbc.ModalBody(
+                        html.Div([
+                            html.H5(id="dl-modal-text", children="Querying California CKAN API...", className="fw-bold text-center mt-2"),
+                            html.P("Compiling massive datasets. This may take 1-2 minutes.", id="dl-modal-subtext", className="text-muted small text-center"),
+                            html.Div(dbc.Spinner(color="info", size="lg"), id="dl-spinner-container", className="mt-4 mb-4"),
+                            html.H2(id="dl-timer-display", children="00:00", className="text-secondary font-monospace")
+                        ], className="d-flex flex-column align-items-center justify-content-center py-4")
+                    ),
+                    dbc.ModalFooter(
+                        dbc.Button("Close", id="btn-close-dl-modal", color="success", className="d-none") 
+                    )
+                ],
+                id="dl-modal",
+                is_open=False,
+                backdrop="static", # Forces the user to wait; they can't click away
+                keyboard=False,
+                centered=True)
         ], md=3, className="d-flex flex-column border-end shadow-sm", style={"height": "100vh", "overflowY": "auto"}),
         
         # --- RIGHT MAIN SECTION: LEAFLET CANVAS ---
@@ -517,7 +539,7 @@ def export_aoi_measurements(n_clicks, map_bounds, counties, basins, uses, types,
         return dash.no_update, dash.no_update
         # We can't actually 'stream' an alert to the screen halfway through a callback, 
         # but having the dcc.Loading spinner combined with the exact language on your button 
-    # sets the right expectation.
+        # sets the right expectation.
     
     # 1. Clone the master cache to prevent mutating the global application state
     working_df = df_master_cache.copy()
@@ -629,4 +651,68 @@ def export_aoi_measurements(n_clicks, map_bounds, counties, basins, uses, types,
 
 
 
-    
+# =========================================================
+# CLIENT-SIDE UX TIMER (Bypasses Python Thread Blocking)
+# =========================================================
+clientside_callback(
+    """
+    function(download_clicks, close_clicks, alert_trigger) {
+        const triggered = dash_clientside.callback_context.triggered.map(t => t.prop_id);
+
+        // 1. User clicked "Close" after the download finished -> Reset everything and hide modal
+        if (triggered.includes("btn-close-dl-modal.n_clicks")) {
+            return [false, "00:00", "Querying California CKAN API...", "Compiling massive datasets. This may take 1-2 minutes.", "text-secondary font-monospace", "block", "d-none"];
+        }
+
+        // 2. User clicked "Download" -> Open Modal and Start Live Timer
+        if (triggered.includes("btn-download-aoi.n_clicks") && download_clicks) {
+            if (!window.dlInterval) {
+                window.dlSeconds = 0;
+                window.dlInterval = setInterval(() => {
+                    window.dlSeconds++;
+                    const mins = Math.floor(window.dlSeconds / 60).toString().padStart(2, '0');
+                    const secs = (window.dlSeconds % 60).toString().padStart(2, '0');
+                    const timerEl = document.getElementById("dl-timer-display");
+                    if(timerEl) timerEl.innerText = mins + ":" + secs;
+                }, 1000);
+            }
+            return [true, "00:00", "Querying California CKAN API...", "Compiling massive datasets. This may take 1-2 minutes.", "text-secondary font-monospace", "block", "d-none"];
+        }
+
+        // 3. Python Callback Finished (Invisible Alert Triggered) -> Stop Timer, Hide Spinner, Show Success text!
+        if (triggered.includes("aoi-download-alert.children") && alert_trigger) {
+            if (window.dlInterval) {
+                clearInterval(window.dlInterval);
+                window.dlInterval = null;
+            }
+            
+            // Grab whatever time the clock stopped at
+            const timerEl = document.getElementById("dl-timer-display");
+            const finalTime = timerEl ? timerEl.innerText : "00:00";
+
+            return [
+                true, // Keep modal open so they can read it
+                "Completed in " + finalTime, 
+                "✅ Download Complete!", 
+                "Your time-series data has been successfully fetched and is located in your computer's Downloads folder.",
+                "text-success fw-bold font-monospace mt-2", // Make timer text green
+                "none", // Hide the spinning wheel
+                "btn btn-success text-white fw-bold" // Reveal the 'Close' button
+            ];
+        }
+
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("dl-modal", "is_open"),
+    Output("dl-timer-display", "children"),
+    Output("dl-modal-text", "children"),
+    Output("dl-modal-subtext", "children"),
+    Output("dl-timer-display", "className"),
+    Output("dl-spinner-container", "style"),
+    Output("btn-close-dl-modal", "className"),
+    Input("btn-download-aoi", "n_clicks"),
+    Input("btn-close-dl-modal", "n_clicks"),
+    Input("aoi-download-alert", "children"), # The invisible trigger from python!
+    prevent_initial_call=True
+)
