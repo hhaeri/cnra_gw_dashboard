@@ -1,5 +1,5 @@
 import dash
-from dash import dcc, html, Input, Output, callback, State, no_update, clientside_callback
+from dash import dcc, html, Input, Output, callback, State, no_update, clientside_callback, DiskcacheManager
 import dash_bootstrap_components as dbc
 from dash_extensions.javascript import Namespace
 import dash_leaflet as dl
@@ -10,9 +10,14 @@ import urllib.parse
 import tempfile
 import os
 import shutil
+import diskcache
 
 # Import your server tools
 from mcp_api.server import execute_sql_paginated, RESOURCES
+
+# Create a temporary folder on the hard drive to manage background tasks
+cache = diskcache.Cache("./cache")
+background_callback_manager = DiskcacheManager(cache)
 
 # Register as a page in the Multi-Page Application
 dash.register_page(__name__, path='/')
@@ -594,7 +599,10 @@ def handle_modal_open_close(open_clicks, close_clicks):
     State("map-filter-type", "value"),
     State("map-filter-program", "value"),
     State("map-filter-sgma", "value"),
-    prevent_initial_call=True
+    prevent_initial_call=True,
+    # --- NEW: BACKGROUND ARGUMENTS ---
+    background=True,
+    manager=background_callback_manager
 )
 def run_heavy_download(is_open, map_bounds, counties, basins, uses, types, programs, sgma_types):
     if not is_open:

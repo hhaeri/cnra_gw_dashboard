@@ -4,3 +4,4 @@ plotly
 requests
 dash-bootstrap-components
 dash-leaflet
+diskcache
