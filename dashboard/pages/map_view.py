@@ -207,8 +207,10 @@ layout = dbc.Container([
             dbc.Button("💧 Download Measurements for a custom Area of Interest (AOI) (CSV)", id="btn-download-aoi", color="info", className="mt-2 w-100 fw-bold"),
             # html.Div(id="aoi-download-alert", className="mt-2"), # Shows warnings if area is too big
             # This alert is now invisible; we use it strictly as a hidden signal to tell Javascript that Python finished
-            html.Div(id="aoi-download-alert", style={"display": "none"}),
+            # html.Div(id="aoi-download-alert", style={"display": "none"}),
             dcc.Download(id="download-aoi-csv"),
+            # Native Dash Timer Components (Invisible)
+            dcc.Interval(id="dl-interval", interval=1000, n_intervals=0, disabled=True),
             # THE DOWNLOAD UX MODAL
             dbc.Modal(
                 [
@@ -216,7 +218,7 @@ layout = dbc.Container([
                     dbc.ModalBody(
                         html.Div([
                             html.H5(id="dl-modal-text", children="Querying California CKAN API...", className="fw-bold text-center mt-2"),
-                            html.P("Compiling massive datasets. This may take 1-2 minutes.", id="dl-modal-subtext", className="text-muted small text-center"),
+                            html.P(id="dl-modal-subtext", children="Compiling massive datasets. This may take 1-2 minutes.", className="text-muted small text-center"),
                             html.Div(dbc.Spinner(color="info", size="lg"), id="dl-spinner-container", className="mt-4 mb-4"),
                             html.H2(id="dl-timer-display", children="00:00", className="text-secondary font-monospace")
                         ], className="d-flex flex-column align-items-center justify-content-center py-4")
@@ -227,9 +229,10 @@ layout = dbc.Container([
                 ],
                 id="dl-modal",
                 is_open=False,
-                backdrop="static", # Forces the user to wait; they can't click away
+                backdrop="static", # Prevents clicking outside to close
                 keyboard=False,
-                centered=True)
+                centered=True
+            )
         ], md=3, className="d-flex flex-column border-end shadow-sm", style={"height": "100vh", "overflowY": "auto"}),
         
         # --- RIGHT MAIN SECTION: LEAFLET CANVAS ---
@@ -330,113 +333,6 @@ def execute_network_spatial_filter(map_bounds, counties, basins, uses, types, pr
                 "county_name": str(row.county_name) if pd.notna(row.county_name) else 'N/A',
                 "sgma_status": sgma_str
             }
-        })
-
-    geojson_payload = {
-        "type": "FeatureCollection",
-        "features": features
-    }
-
-    # 4. Format USGS-Style Metrics Display
-    summary_metrics_ui = html.Div([
-        html.Div([
-            html.Span("SITES IN VIEW: ", className="fw-bold text-muted"), 
-            html.Strong(f"{total_visible_sites:,}", className="text-primary fs-5")
-        ], className="mb-1"),
-        html.Div([
-            html.Span("SGMA REP TYPE: ", className="fw-bold text-muted"), 
-            html.Strong(f"{representative_count:,}", className="text-success fs-5")
-        ], className="mb-2"),
-        html.Hr(className="my-2 border-secondary"),
-        html.Div([
-            html.Span("GLOBAL MATCH: "), html.Span(f"{total_filtered_attributes:,} total records")
-        ], className="small text-muted")
-    ])
-
-    return geojson_payload, summary_metrics_ui
-    
-def execute_network_spatial_filter_(map_bounds, counties, basins, uses, types, programs, sgma_types):
-    working_df = df_master_cache.copy()
-    
-    # 1. Apply Categorical Filters
-    if counties:
-        working_df = working_df[working_df['county_name'].isin(counties)]
-    if basins:
-        working_df = working_df[working_df['basin_name'].isin(basins)]
-    if uses:
-        working_df = working_df[working_df['well_use'].isin(uses)]
-    if types:
-        working_df = working_df[working_df['well_type'].isin(types)]
-    if programs:
-        working_df = working_df[working_df['monitoring_program'].isin(programs)]
-    if sgma_types:
-        working_df = working_df[working_df['MONITORING_NETWORK_TYPE'].isin(sgma_types)]
-    else:
-        working_df = working_df.iloc[0:0]
-
-    total_filtered_attributes = len(working_df)
-
-    # 2. Apply Spatial Bounding Box Filter
-    if map_bounds:
-        south, west = map_bounds[0][0], map_bounds[0][1]
-        north, east = map_bounds[1][0], map_bounds[1][1]
-        spatial_df = working_df[
-            (working_df['latitude'] >= south) & (working_df['latitude'] <= north) &
-            (working_df['longitude'] >= west) & (working_df['longitude'] <= east)
-        ]
-    else:
-        spatial_df = working_df
-
-    total_visible_sites = len(spatial_df)
-    representative_count = len(spatial_df[spatial_df['MONITORING_NETWORK_TYPE'] == 'SGMA Representative'])
-
-
-    # 3. Compile Pandas Data into Native GeoJSON Dictionary (MEMORY OPTIMIZED)
-    features = []
-    
-    # OPTIMIZATION A: Only build heavy HTML popups if there are a reasonable amount of points.
-    # This prevents the 512MB JSON serialization crash on Render when zoomed out.
-    render_popups = total_visible_sites < 1500
-
-    # OPTIMIZATION B: Use itertuples() instead of iterrows() for massive speed/memory gains
-    for row in spatial_df.itertuples(index=False):
-        
-        # Base properties that every dot gets (very lightweight)
-        properties = {
-            "tooltip": f"Well ID: {row.site_code}"
-        }
-
-        # Only inject the heavy HTML payload if we are zoomed in or heavily filtered
-        if render_popups:
-            # Handle potential NaNs cleanly for itertuples
-            raw_name = str(row.well_name) if pd.notna(row.well_name) else 'Unknown Well'
-            safe_name = urllib.parse.quote(raw_name)
-            basin = str(row.basin_name) if pd.notna(row.basin_name) else 'N/A'
-            county = str(row.county_name) if pd.notna(row.county_name) else 'N/A'
-
-            popup_html = f"""
-                <div style='font-family: sans-serif; min-width: 220px;'>
-                    <h6 style='margin: 0px 0px 4px 0px; font-weight: bold;'>{raw_name}</h6>
-                    <p style='margin: 0px; font-size: 11px; color: #555;'><b>Basin:</b> {basin}</p>
-                    <p style='margin: 0px 0px 8px 0px; font-size: 11px; color: #555;'><b>County:</b> {county}</p>
-                    
-                    <a href='/well-dashboard?id={row.site_code}&name={safe_name}' 
-                       target='_blank' rel='noopener noreferrer'
-                       style='display: block; background-color: #2c3e50; color: white; padding: 6px; 
-                              text-align: center; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: bold;'>
-                       Open Hydrograph Analytics ↗
-                    </a>
-                </div>
-            """
-            properties["popup"] = popup_html
-        
-        features.append({
-            "type": "Feature",
-            "geometry": {
-                "type": "Point",
-                "coordinates": [row.longitude, row.latitude] 
-            },
-            "properties": properties
         })
 
     geojson_payload = {
@@ -649,70 +545,164 @@ def export_aoi_measurements(n_clicks, map_bounds, counties, basins, uses, types,
             os.remove(temp_filepath)
         return dash.no_update, dbc.Alert("Database timeout or error. Try selecting a smaller area.", color="danger", duration=4000)
 
-
-
-# =========================================================
-# CLIENT-SIDE UX TIMER (Bypasses Python Thread Blocking)
-# =========================================================
-clientside_callback(
-    """
-    function(download_clicks, close_clicks, alert_trigger) {
-        const triggered = dash_clientside.callback_context.triggered.map(t => t.prop_id);
-
-        // 1. User clicked "Close" after the download finished -> Reset everything and hide modal
-        if (triggered.includes("btn-close-dl-modal.n_clicks")) {
-            return [false, "00:00", "Querying California CKAN API...", "Compiling massive datasets. This may take 1-2 minutes.", "text-secondary font-monospace", "block", "d-none"];
-        }
-
-        // 2. User clicked "Download" -> Open Modal and Start Live Timer
-        if (triggered.includes("btn-download-aoi.n_clicks") && download_clicks) {
-            if (!window.dlInterval) {
-                window.dlSeconds = 0;
-                window.dlInterval = setInterval(() => {
-                    window.dlSeconds++;
-                    const mins = Math.floor(window.dlSeconds / 60).toString().padStart(2, '0');
-                    const secs = (window.dlSeconds % 60).toString().padStart(2, '0');
-                    const timerEl = document.getElementById("dl-timer-display");
-                    if(timerEl) timerEl.innerText = mins + ":" + secs;
-                }, 1000);
-            }
-            return [true, "00:00", "Querying California CKAN API...", "Compiling massive datasets. This may take 1-2 minutes.", "text-secondary font-monospace", "block", "d-none"];
-        }
-
-        // 3. Python Callback Finished (Invisible Alert Triggered) -> Stop Timer, Hide Spinner, Show Success text!
-        if (triggered.includes("aoi-download-alert.children") && alert_trigger) {
-            if (window.dlInterval) {
-                clearInterval(window.dlInterval);
-                window.dlInterval = null;
-            }
-            
-            // Grab whatever time the clock stopped at
-            const timerEl = document.getElementById("dl-timer-display");
-            const finalTime = timerEl ? timerEl.innerText : "00:00";
-
-            return [
-                true, // Keep modal open so they can read it
-                "Completed in " + finalTime, 
-                "✅ Download Complete!", 
-                "Your time-series data has been successfully fetched and is located in your computer's Downloads folder.",
-                "text-success fw-bold font-monospace mt-2", // Make timer text green
-                "none", // Hide the spinning wheel
-                "btn btn-success text-white fw-bold" // Reveal the 'Close' button
-            ];
-        }
-
-        return window.dash_clientside.no_update;
-    }
-    """,
+@callback(
     Output("dl-modal", "is_open"),
-    Output("dl-timer-display", "children"),
+    Output("dl-interval", "disabled"),
+    Output("dl-interval", "n_intervals"), 
     Output("dl-modal-text", "children"),
     Output("dl-modal-subtext", "children"),
-    Output("dl-timer-display", "className"),
     Output("dl-spinner-container", "style"),
     Output("btn-close-dl-modal", "className"),
+    Output("dl-timer-display", "className"),
     Input("btn-download-aoi", "n_clicks"),
     Input("btn-close-dl-modal", "n_clicks"),
-    Input("aoi-download-alert", "children"), # The invisible trigger from python!
     prevent_initial_call=True
 )
+def handle_modal_open_close(open_clicks, close_clicks):
+    trigger = dash.ctx.triggered_id
+    
+    if trigger == "btn-download-aoi":
+        # OPEN MODAL & RESET UI
+        return (
+            True, False, 0, 
+            "Querying California CKAN API...", 
+            "Compiling massive datasets. This may take 1-2 minutes.", 
+            {"display": "block"}, "d-none", "text-secondary font-monospace"
+        )
+    elif trigger == "btn-close-dl-modal":
+        # CLOSE MODAL & STOP TIMER
+        return (
+            False, True, 0, 
+            dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        )
+    
+    return [dash.no_update] * 8
+
+@callback(
+    Output("download-aoi-csv", "data"),
+    Output("dl-modal-text", "children", allow_duplicate=True),
+    Output("dl-modal-subtext", "children", allow_duplicate=True),
+    Output("dl-spinner-container", "style", allow_duplicate=True),
+    Output("btn-close-dl-modal", "className", allow_duplicate=True),
+    Output("dl-timer-display", "className", allow_duplicate=True),
+    Output("dl-interval", "disabled", allow_duplicate=True),
+    Input("dl-modal", "is_open"), # <-- THE CHAIN: This only fires when the modal physically opens
+    State("leaflet-gis-map", "bounds"),
+    State("map-filter-county", "value"),
+    State("map-filter-basin", "value"),
+    State("map-filter-use", "value"),
+    State("map-filter-type", "value"),
+    State("map-filter-program", "value"),
+    State("map-filter-sgma", "value"),
+    prevent_initial_call=True
+)
+def run_heavy_download(is_open, map_bounds, counties, basins, uses, types, programs, sgma_types):
+    if not is_open:
+        return [dash.no_update] * 7
+        
+    # 1. Re-apply Filters
+    working_df = df_master_cache.copy()
+    if counties: working_df = working_df[working_df['county_name'].isin(counties)]
+    if basins: working_df = working_df[working_df['basin_name'].isin(basins)]
+    if uses: working_df = working_df[working_df['well_use'].isin(uses)]
+    if types: working_df = working_df[working_df['well_type'].isin(types)]
+    if programs: working_df = working_df[working_df['monitoring_program'].isin(programs)]
+    if sgma_types: working_df = working_df[working_df['MONITORING_NETWORK_TYPE'].isin(sgma_types)]
+    
+    if map_bounds:
+        south, west = map_bounds[0][0], map_bounds[0][1]
+        north, east = map_bounds[1][0], map_bounds[1][1]
+        spatial_df = working_df[
+            (working_df['latitude'] >= south) & (working_df['latitude'] <= north) &
+            (working_df['longitude'] >= west) & (working_df['longitude'] <= east)
+        ]
+    else:
+        spatial_df = working_df
+
+    # 2. Check Limits
+    MAX_WELL_LIMIT = 200 
+    total_wells = len(spatial_df)
+    
+    if total_wells == 0 or total_wells > MAX_WELL_LIMIT:
+        error_sub = "No wells in view." if total_wells == 0 else f"Selected {total_wells} wells. Limit is {MAX_WELL_LIMIT}."
+        return (
+             dash.no_update, "⚠️ Download Failed", error_sub, {"display": "none"}, 
+             "btn btn-danger text-white fw-bold", "text-danger fw-bold font-monospace mt-2", True
+        )
+
+    # 3. Spool to Disk
+    import asyncio, gc, tempfile, os, shutil
+    
+    target_site_codes = spatial_df['site_code'].tolist()
+    CHUNK_SIZE = 15 
+    
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.csv')
+    temp_filepath = temp_file.name
+    temp_file.close()
+    first_chunk = True 
+
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        for i in range(0, len(target_site_codes), CHUNK_SIZE):
+            chunk = target_site_codes[i:i + CHUNK_SIZE]
+            formatted_codes = ", ".join([f"'{code}'" for code in chunk])
+            sql_query = f'SELECT * FROM "{RESOURCES["measurements"]}" WHERE "site_code" IN ({formatted_codes})'
+            
+            chunk_records = loop.run_until_complete(execute_sql_paginated(sql_query))
+            
+            if chunk_records:
+                df_chunk = pd.DataFrame(chunk_records)
+                junk_columns = ['_full_text', 'full_text', '_id']
+                existing_junk = [col for col in junk_columns if col in df_chunk.columns]
+                if existing_junk:
+                    df_chunk = df_chunk.drop(columns=existing_junk)
+                
+                df_chunk.to_csv(temp_filepath, mode='a', header=first_chunk, index=False)
+                first_chunk = False 
+                del df_chunk
+                
+            del chunk_records
+            gc.collect()
+
+        if first_chunk:
+             if os.path.exists(temp_filepath): os.remove(temp_filepath)
+             return (dash.no_update, "⚠️ Error", "No measurements found.", {"display": "none"}, "btn btn-danger text-white fw-bold", "text-danger fw-bold font-monospace mt-2", True)
+             
+        def stream_and_delete(buffer):
+            with open(temp_filepath, "rb") as f:
+                shutil.copyfileobj(f, buffer)
+            os.remove(temp_filepath)
+
+        # 4. Success UI Update!
+        return (
+            dcc.send_bytes(stream_and_delete, "AOI_Groundwater_Measurements.csv"),
+            "✅ Download Complete!",
+            "Your time-series data has been successfully fetched and is in your Downloads folder.",
+            {"display": "none"}, # Hide spinner
+            "btn btn-success text-white fw-bold", # Show close button
+            "text-success fw-bold font-monospace mt-2", # Green timer text
+            True # Disable timer
+        )
+
+    except Exception as e:
+        print(f"AOI Export Error: {e}")
+        if os.path.exists(temp_filepath): os.remove(temp_filepath)
+        return (dash.no_update, "⚠️ Database Error", "Timeout or connection error.", {"display": "none"}, "btn btn-danger text-white fw-bold", "text-danger fw-bold font-monospace mt-2", True)
+
+
+# Uses the browser to count seconds natively so it doesn't wait on the blocked Python server
+clientside_callback(
+    """
+    function(n_intervals) {
+        if (!n_intervals) { return "00:00"; }
+        const mins = Math.floor(n_intervals / 60).toString().padStart(2, '0');
+        const secs = (n_intervals % 60).toString().padStart(2, '0');
+        return mins + ":" + secs;
+    }
+    """,
+    Output("dl-timer-display", "children"),
+    Input("dl-interval", "n_intervals")
+)
+
