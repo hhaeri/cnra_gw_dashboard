@@ -6,3 +6,4 @@ dash-bootstrap-components
 dash-leaflet
 diskcache
 psutil
+multiprocess
