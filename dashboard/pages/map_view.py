@@ -411,7 +411,7 @@ def download_filtered_stations(n_clicks, counties, basins, uses, types, programs
 # ==========================================
 # 3. INTERACTIVITY CALLBACKS
 # ==========================================
-
+'''
 @callback(
     Output("download-aoi-csv", "data"),
     Output("aoi-download-alert", "children"),
@@ -550,6 +550,8 @@ def export_aoi_measurements(n_clicks, map_bounds, counties, basins, uses, types,
             os.remove(temp_filepath)
         return dash.no_update, dbc.Alert("Database timeout or error. Try selecting a smaller area.", color="danger", duration=4000)
 
+'''
+
 @callback(
     Output("dl-modal", "is_open"),
     Output("dl-interval", "disabled"),
@@ -582,6 +584,7 @@ def handle_modal_open_close(open_clicks, close_clicks):
         )
     
     return [dash.no_update] * 8
+
 
 @callback(
     Output("download-aoi-csv", "data"),
