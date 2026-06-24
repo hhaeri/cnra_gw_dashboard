@@ -629,8 +629,8 @@ def run_heavy_download(is_open, map_bounds, counties, basins, uses, types, progr
     else:
         spatial_df = working_df
 
-    # 2. Strict Limit Enforcement (Reverting to 150)
-    MAX_WELL_LIMIT = 150 
+    # 2. Strict Limit Enforcement (Revert to 150 if you encounter a problem)
+    MAX_WELL_LIMIT = 250 
     total_wells = len(spatial_df)
     
     if total_wells == 0 or total_wells > MAX_WELL_LIMIT:
