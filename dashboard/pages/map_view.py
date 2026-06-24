@@ -11,6 +11,8 @@ import tempfile
 import os
 import shutil
 import diskcache
+import csv
+
 
 # Import your server tools
 from mcp_api.server import execute_sql_paginated, RESOURCES
@@ -603,7 +605,6 @@ def handle_modal_open_close(open_clicks, close_clicks):
     State("map-filter-program", "value"),
     State("map-filter-sgma", "value"),
     prevent_initial_call=True,
-    # --- NEW: BACKGROUND ARGUMENTS ---
     background=True,
     manager=background_callback_manager
 )
@@ -641,16 +642,17 @@ def run_heavy_download(is_open, map_bounds, counties, basins, uses, types, progr
              "btn btn-danger text-white fw-bold", "text-danger fw-bold font-monospace mt-2", True
         )
 
-    # 3. Spool to Disk
-    import asyncio, gc, tempfile, os, shutil
+    # 3. PURE PYTHON NATIVE CSV SPOOLING (Zero-Pandas)
     
     target_site_codes = spatial_df['site_code'].tolist()
     CHUNK_SIZE = 15 
     
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.csv')
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='w', newline='', encoding='utf-8')
     temp_filepath = temp_file.name
-    temp_file.close()
-    first_chunk = True 
+    
+    # Bypass RAM entirely by streaming text directly to the hard drive
+    csv_writer = csv.writer(temp_file)
+    headers_written = False
 
     try:
         loop = asyncio.new_event_loop()
@@ -664,20 +666,29 @@ def run_heavy_download(is_open, map_bounds, counties, basins, uses, types, progr
             chunk_records = loop.run_until_complete(execute_sql_paginated(sql_query))
             
             if chunk_records:
-                df_chunk = pd.DataFrame(chunk_records)
-                junk_columns = ['_full_text', 'full_text', '_id']
-                existing_junk = [col for col in junk_columns if col in df_chunk.columns]
-                if existing_junk:
-                    df_chunk = df_chunk.drop(columns=existing_junk)
+                # Manually strip CKAN system keys
+                junk_keys = ['_full_text', 'full_text', '_id']
+                for record in chunk_records:
+                    for key in junk_keys:
+                        record.pop(key, None)
                 
-                df_chunk.to_csv(temp_filepath, mode='a', header=first_chunk, index=False)
-                first_chunk = False 
-                del df_chunk
+                # Write headers only once
+                if not headers_written:
+                    headers = list(chunk_records[0].keys())
+                    csv_writer.writerow(headers)
+                    headers_written = True
                 
+                # Write rows directly to disk
+                for row in chunk_records:
+                    csv_writer.writerow(row.values())
+                    
             del chunk_records
             gc.collect()
 
-        if first_chunk:
+        # Unlock the file from the OS so Dash can read it
+        temp_file.close()
+
+        if not headers_written:
              if os.path.exists(temp_filepath): os.remove(temp_filepath)
              return (dash.no_update, "⚠️ Error", "No measurements found.", {"display": "none"}, "btn btn-danger text-white fw-bold", "text-danger fw-bold font-monospace mt-2", True)
              
@@ -699,9 +710,9 @@ def run_heavy_download(is_open, map_bounds, counties, basins, uses, types, progr
 
     except Exception as e:
         print(f"AOI Export Error: {e}")
+        temp_file.close()
         if os.path.exists(temp_filepath): os.remove(temp_filepath)
         return (dash.no_update, "⚠️ Database Error", "Timeout or connection error.", {"display": "none"}, "btn btn-danger text-white fw-bold", "text-danger fw-bold font-monospace mt-2", True)
-
 
 # Uses the browser to count seconds natively so it doesn't wait on the blocked Python server
 clientside_callback(
