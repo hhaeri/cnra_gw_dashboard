@@ -604,6 +604,134 @@ def handle_modal_open_close(open_clicks, close_clicks):
     State("map-filter-program", "value"),
     State("map-filter-sgma", "value"),
     prevent_initial_call=True
+    # Notice: STILL NO BACKGROUND MANAGER. We run this straight on the metal.
+)
+def run_heavy_download(is_open, map_bounds, counties, basins, uses, types, programs, sgma_types):
+    if not is_open:
+        return [dash.no_update] * 7
+        
+    # 1. Re-apply Filters
+    working_df = df_master_cache.copy()
+    if counties: working_df = working_df[working_df['county_name'].isin(counties)]
+    if basins: working_df = working_df[working_df['basin_name'].isin(basins)]
+    if uses: working_df = working_df[working_df['well_use'].isin(uses)]
+    if types: working_df = working_df[working_df['well_type'].isin(types)]
+    if programs: working_df = working_df[working_df['monitoring_program'].isin(programs)]
+    if sgma_types: working_df = working_df[working_df['MONITORING_NETWORK_TYPE'].isin(sgma_types)]
+    
+    if map_bounds:
+        south, west = map_bounds[0][0], map_bounds[0][1]
+        north, east = map_bounds[1][0], map_bounds[1][1]
+        spatial_df = working_df[
+            (working_df['latitude'] >= south) & (working_df['latitude'] <= north) &
+            (working_df['longitude'] >= west) & (working_df['longitude'] <= east)
+        ]
+    else:
+        spatial_df = working_df
+
+    # 2. YOU CAN NOW SAFELY RAISE THIS TO 250 (OR EVEN 300)
+    MAX_WELL_LIMIT = 250 
+    total_wells = len(spatial_df)
+    
+    if total_wells == 0 or total_wells > MAX_WELL_LIMIT:
+        error_sub = "No wells in view." if total_wells == 0 else f"Selected {total_wells} wells. Limit is {MAX_WELL_LIMIT}."
+        return (
+             dash.no_update, "⚠️ Download Failed", error_sub, {"display": "none"}, 
+             "btn btn-danger text-white fw-bold", "text-danger fw-bold font-monospace mt-2", True
+        )
+
+    # 3. BARE-METAL CHUNKING (No Background Workers, Pure CSV)
+    import asyncio, gc, tempfile, os, shutil, csv
+    
+    target_site_codes = spatial_df['site_code'].tolist()
+    
+    # We grab 30 wells at a time. This keeps RAM incredibly low, but limits network requests.
+    CHUNK_SIZE = 30 
+    
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='w', newline='', encoding='utf-8')
+    temp_filepath = temp_file.name
+    csv_writer = csv.writer(temp_file)
+    headers_written = False
+
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # Iteratively fetch and write data chunk-by-chunk
+        for i in range(0, len(target_site_codes), CHUNK_SIZE):
+            chunk = target_site_codes[i:i + CHUNK_SIZE]
+            formatted_codes = ", ".join([f"'{code}'" for code in chunk])
+            sql_query = f'SELECT * FROM "{RESOURCES["measurements"]}" WHERE "site_code" IN ({formatted_codes})'
+            
+            chunk_records = loop.run_until_complete(execute_sql_paginated(sql_query))
+            
+            if chunk_records:
+                junk_keys = ['_full_text', 'full_text', '_id']
+                
+                # Write headers only on the very first successful chunk
+                if not headers_written:
+                    headers = [k for k in chunk_records[0].keys() if k not in junk_keys]
+                    csv_writer.writerow(headers)
+                    headers_written = True
+                else:
+                    headers = [k for k in chunk_records[0].keys() if k not in junk_keys]
+                
+                # Write rows for this chunk
+                for record in chunk_records:
+                    row_data = [record.get(k, '') for k in headers]
+                    csv_writer.writerow(row_data)
+            
+            # INSTANTLY NUKE THE CHUNK FROM RAM
+            del chunk_records
+            gc.collect()
+            
+        temp_file.close()
+
+        # If it finished all chunks and the file is empty, no data existed
+        if not headers_written:
+             if os.path.exists(temp_filepath): os.remove(temp_filepath)
+             return (dash.no_update, "⚠️ Error", "No measurements found.", {"display": "none"}, "btn btn-danger text-white fw-bold", "text-danger fw-bold font-monospace mt-2", True)
+             
+        def stream_and_delete(buffer):
+            with open(temp_filepath, "rb") as f:
+                shutil.copyfileobj(f, buffer)
+            os.remove(temp_filepath)
+
+        # 4. Success UI Update!
+        return (
+            dcc.send_bytes(stream_and_delete, "AOI_Groundwater_Measurements.csv"),
+            "✅ Download Complete!",
+            f"Successfully compiled time-series data for {total_wells} wells.",
+            {"display": "none"}, 
+            "btn btn-success text-white fw-bold", 
+            "text-success fw-bold font-monospace mt-2", 
+            True 
+        )
+
+    except Exception as e:
+        print(f"AOI Export Error: {e}")
+        temp_file.close()
+        if os.path.exists(temp_filepath): os.remove(temp_filepath)
+        return (dash.no_update, "⚠️ Database Error", "Timeout or connection error.", {"display": "none"}, "btn btn-danger text-white fw-bold", "text-danger fw-bold font-monospace mt-2", True)
+        
+''' This one works perfectly for 150 wells but gives me the failed instance error when i try higher max_limit_wells
+@callback(
+    Output("download-aoi-csv", "data"),
+    Output("dl-modal-text", "children", allow_duplicate=True),
+    Output("dl-modal-subtext", "children", allow_duplicate=True),
+    Output("dl-spinner-container", "style", allow_duplicate=True),
+    Output("btn-close-dl-modal", "className", allow_duplicate=True),
+    Output("dl-timer-display", "className", allow_duplicate=True),
+    Output("dl-interval", "disabled", allow_duplicate=True),
+    Input("dl-modal", "is_open"), 
+    State("leaflet-gis-map", "bounds"),
+    State("map-filter-county", "value"),
+    State("map-filter-basin", "value"),
+    State("map-filter-use", "value"),
+    State("map-filter-type", "value"),
+    State("map-filter-program", "value"),
+    State("map-filter-sgma", "value"),
+    prevent_initial_call=True
     # BACKGROUND MANAGER COMPLETELY REMOVED
 )
 def run_heavy_download(is_open, map_bounds, counties, basins, uses, types, programs, sgma_types):
@@ -701,6 +829,7 @@ def run_heavy_download(is_open, map_bounds, counties, basins, uses, types, progr
         temp_file.close()
         if os.path.exists(temp_filepath): os.remove(temp_filepath)
         return (dash.no_update, "⚠️ Database Error", "Timeout or connection error.", {"display": "none"}, "btn btn-danger text-white fw-bold", "text-danger fw-bold font-monospace mt-2", True)
+'''
 '''
 @callback(
     Output("download-aoi-csv", "data"),
