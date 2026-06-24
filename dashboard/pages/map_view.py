@@ -1,5 +1,5 @@
 import dash
-from dash import dcc, html, Input, Output, callback, State, no_update, clientside_callback, DiskcacheManager
+from dash import dcc, html, Input, Output, callback, State, no_update, clientside_callback#, DiskcacheManager
 import dash_bootstrap_components as dbc
 from dash_extensions.javascript import Namespace
 import dash_leaflet as dl
@@ -17,9 +17,9 @@ import csv
 # Import your server tools
 from mcp_api.server import execute_sql_paginated, RESOURCES
 
-# Create a temporary folder on the hard drive to manage background tasks
-cache = diskcache.Cache("./cache")
-background_callback_manager = DiskcacheManager(cache)
+# # Create a temporary folder on the hard drive to manage background tasks
+# cache = diskcache.Cache("./cache")
+# background_callback_manager = DiskcacheManager(cache)
 
 # Register as a page in the Multi-Page Application
 dash.register_page(__name__, path='/')
@@ -587,7 +587,121 @@ def handle_modal_open_close(open_clicks, close_clicks):
     
     return [dash.no_update] * 8
 
+@callback(
+    Output("download-aoi-csv", "data"),
+    Output("dl-modal-text", "children", allow_duplicate=True),
+    Output("dl-modal-subtext", "children", allow_duplicate=True),
+    Output("dl-spinner-container", "style", allow_duplicate=True),
+    Output("btn-close-dl-modal", "className", allow_duplicate=True),
+    Output("dl-timer-display", "className", allow_duplicate=True),
+    Output("dl-interval", "disabled", allow_duplicate=True),
+    Input("dl-modal", "is_open"), 
+    State("leaflet-gis-map", "bounds"),
+    State("map-filter-county", "value"),
+    State("map-filter-basin", "value"),
+    State("map-filter-use", "value"),
+    State("map-filter-type", "value"),
+    State("map-filter-program", "value"),
+    State("map-filter-sgma", "value"),
+    prevent_initial_call=True
+    # BACKGROUND MANAGER COMPLETELY REMOVED
+)
+def run_heavy_download(is_open, map_bounds, counties, basins, uses, types, programs, sgma_types):
+    if not is_open:
+        return [dash.no_update] * 7
+        
+    # 1. Re-apply Filters
+    working_df = df_master_cache.copy()
+    if counties: working_df = working_df[working_df['county_name'].isin(counties)]
+    if basins: working_df = working_df[working_df['basin_name'].isin(basins)]
+    if uses: working_df = working_df[working_df['well_use'].isin(uses)]
+    if types: working_df = working_df[working_df['well_type'].isin(types)]
+    if programs: working_df = working_df[working_df['monitoring_program'].isin(programs)]
+    if sgma_types: working_df = working_df[working_df['MONITORING_NETWORK_TYPE'].isin(sgma_types)]
+    
+    if map_bounds:
+        south, west = map_bounds[0][0], map_bounds[0][1]
+        north, east = map_bounds[1][0], map_bounds[1][1]
+        spatial_df = working_df[
+            (working_df['latitude'] >= south) & (working_df['latitude'] <= north) &
+            (working_df['longitude'] >= west) & (working_df['longitude'] <= east)
+        ]
+    else:
+        spatial_df = working_df
 
+    # 2. Strict Limit Enforcement (Reverting to 150)
+    MAX_WELL_LIMIT = 150 
+    total_wells = len(spatial_df)
+    
+    if total_wells == 0 or total_wells > MAX_WELL_LIMIT:
+        error_sub = "No wells in view." if total_wells == 0 else f"Selected {total_wells} wells. Limit is {MAX_WELL_LIMIT}."
+        return (
+             dash.no_update, "⚠️ Download Failed", error_sub, {"display": "none"}, 
+             "btn btn-danger text-white fw-bold", "text-danger fw-bold font-monospace mt-2", True
+        )
+
+    # 3. SINGLE-SHOT PURE CSV EXTRACTION (No Chunking)
+    import asyncio, gc, tempfile, os, shutil, csv
+    
+    target_site_codes = spatial_df['site_code'].tolist()
+    
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='w', newline='', encoding='utf-8')
+    temp_filepath = temp_file.name
+    csv_writer = csv.writer(temp_file)
+    headers_written = False
+
+    try:
+        # Build one giant SQL IN clause
+        formatted_codes = ", ".join([f"'{code}'" for code in target_site_codes])
+        sql_query = f'SELECT * FROM "{RESOURCES["measurements"]}" WHERE "site_code" IN ({formatted_codes})'
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # Single massive fetch
+        all_records = loop.run_until_complete(execute_sql_paginated(sql_query))
+        
+        if all_records:
+            junk_keys = ['_full_text', 'full_text', '_id']
+            headers = [k for k in all_records[0].keys() if k not in junk_keys]
+            csv_writer.writerow(headers)
+            headers_written = True
+            
+            for record in all_records:
+                row_data = [record.get(k, '') for k in headers]
+                csv_writer.writerow(row_data)
+                
+        # Nuke the massive JSON payload from RAM instantly
+        del all_records
+        gc.collect()
+        temp_file.close()
+
+        if not headers_written:
+             if os.path.exists(temp_filepath): os.remove(temp_filepath)
+             return (dash.no_update, "⚠️ Error", "No measurements found.", {"display": "none"}, "btn btn-danger text-white fw-bold", "text-danger fw-bold font-monospace mt-2", True)
+             
+        def stream_and_delete(buffer):
+            with open(temp_filepath, "rb") as f:
+                shutil.copyfileobj(f, buffer)
+            os.remove(temp_filepath)
+
+        # 4. Success UI Update!
+        return (
+            dcc.send_bytes(stream_and_delete, "AOI_Groundwater_Measurements.csv"),
+            "✅ Download Complete!",
+            "Your time-series data has been successfully fetched and is in your Downloads folder.",
+            {"display": "none"}, 
+            "btn btn-success text-white fw-bold", 
+            "text-success fw-bold font-monospace mt-2", 
+            True 
+        )
+
+    except Exception as e:
+        print(f"AOI Export Error: {e}")
+        temp_file.close()
+        if os.path.exists(temp_filepath): os.remove(temp_filepath)
+        return (dash.no_update, "⚠️ Database Error", "Timeout or connection error.", {"display": "none"}, "btn btn-danger text-white fw-bold", "text-danger fw-bold font-monospace mt-2", True)
+'''
 @callback(
     Output("download-aoi-csv", "data"),
     Output("dl-modal-text", "children", allow_duplicate=True),
@@ -713,6 +827,8 @@ def run_heavy_download(is_open, map_bounds, counties, basins, uses, types, progr
         temp_file.close()
         if os.path.exists(temp_filepath): os.remove(temp_filepath)
         return (dash.no_update, "⚠️ Database Error", "Timeout or connection error.", {"display": "none"}, "btn btn-danger text-white fw-bold", "text-danger fw-bold font-monospace mt-2", True)
+
+'''
 
 # Uses the browser to count seconds natively so it doesn't wait on the blocked Python server
 clientside_callback(
